@@ -3246,7 +3246,7 @@ type hchan struct {
 + 用于保存向该chan发送和从改chan接收数据的goroutine的队列。=====> sendq 和 recvq
 + 保证channel写入和读取数据时线程安全的锁。 =====> lock
 
-`<font style="color:rgb(18, 29, 48);">waitq</font>`<font style="color:rgb(18, 29, 48);background-color:rgb(254, 255, 255);"> 是 </font>`<font style="color:rgb(18, 29, 48);">sudog</font>`<font style="color:rgb(18, 29, 48);background-color:rgb(254, 255, 255);"> 的一个双向链表，而 </font>`<font style="color:rgb(18, 29, 48);">sudog</font>`<font style="color:rgb(18, 29, 48);background-color:rgb(254, 255, 255);"> 实际上是对 goroutine 的一个封装：</font>
+`waitq` 是 `sudog` 的一个双向链表，而 `sudog`<font style="color:rgb(18, 29, 48);background-color:rgb(254, 255, 255);"> 实际上是对 goroutine 的一个封装：</font>
 
 ```go
 type waitq struct {
