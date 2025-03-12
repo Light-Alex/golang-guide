@@ -3878,9 +3878,9 @@ pool.Put(obj)
 #### <font style="color:rgb(5, 7, 59);">注意事项</font>
 1. **对象状态未知**：从`sync.Pool`<font style="color:rgb(5, 7, 59);"> </font><font style="color:rgb(5, 7, 59);">中获取的对象的状态是未知的。因此，在使用对象之前，你应该将其重置到适当的初始状态。</font>
 2. **自动清理**：由于 Go 的垃圾回收器会清理`sync.Pool`<font style="color:rgb(5, 7, 59);"> </font><font style="color:rgb(5, 7, 59);">中的对象，因此你不能依赖</font><font style="color:rgb(5, 7, 59);"> </font>`sync.Pool`<font style="color:rgb(5, 7, 59);"> </font><font style="color:rgb(5, 7, 59);">来长期存储对象。</font>
-3. **不适合所有场景**`sync.Pool`并不适合所有需要对象池的场景。特别是对于那些需要精确控制对象生命周期的场景，你可能需要实现自定义的对象池。
+3. **不适合所有场景**`sync.Pool`**并不适合所有需要对象池的场景**。**特别是对于那些需要精确控制对象生命周期的场景**，你可能需要实现自定义的对象池。
 
-总的来说，`sync.Pool`<font style="color:rgb(5, 7, 59);"> 是 Go 语言提供的一个非常有用的工具，它可以帮助你减少内存分配和垃圾回收的开销，提高程序的性能。然而，在使用时需要注意其特性和局限，以免发生不可预见的问题。</font>
+总的来说，`sync.Pool`<font style="color:rgb(5, 7, 59);"> 是 Go 语言提供的一个非常有用的工具，它**可以帮助你减少内存分配和垃圾回收的开销，提高程序的性能**。然而，在使用时需要注意其特性和局限，以免发生不可预见的问题。</font>
 
 ## **垃圾回收-GC**
 [垃圾回收原理-地鼠文档](https://www.topgoer.cn/docs/gozhuanjia/chapter044.2-garbage_collection)  
