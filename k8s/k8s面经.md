@@ -452,12 +452,26 @@ Service负载分发的策略有：RoundRobin和SessionAffinity
 k8s的Ingress资源对象，用于将不同URL的访问请求转发到后端不同的Service，以实现HTTP层的业务路由机制。
 k8s使用了Ingress策略和Ingress Controller，两者结合并实现了一个完整的Ingress负载均衡器。使用Ingress进行负载分发时，Ingress Controller基于Ingress规则将客户端请求直接转发到Service对应的后端Endpoint（Pod）上，从而跳过kube-proxy的转发功能，kube-proxy不再起作用，全过程为：ingress controller + ingress 规则 ----> services。
 同时当Ingress Controller提供的是对外服务，则实际上实现的是边缘路由器的功能。
+
 ## k8s镜像的下载策略
 k8s的镜像下载策略有三种：Always、Never、IFNotPresent。
 
 - Always：镜像标签为latest时，总是从指定的仓库中获取镜像。
 - Never：禁止从仓库中下载镜像，也就是说只能使用本地镜像。
 - IfNotPresent：仅当本地没有对应镜像时，才从目标仓库中下载。默认的镜像下载策略是：当镜像标签是latest时，默认策略是Always；当镜像标签是自定义时（也就是标签不是latest），那么默认策略是IfNotPresent。
+
+---
+
+**DeepSeek版本：**
+
+| **策略**       | **拉取条件**               | **默认触发场景**                     | **典型用途**                     |
+| -------------- | -------------------------- | ------------------------------------ | -------------------------------- |
+| `Always`       | 总是从仓库拉取             | 镜像标签为 `latest` 或未指定标签时。 | 持续集成/持续部署（CI/CD）环境。 |
+| `IfNotPresent` | 仅当本地不存在时从仓库拉取 | 镜像标签为固定版本（如 `v1.2.3`）。  | 生产环境（节省带宽和启动时间）。 |
+| `Never`        | 禁止拉取，仅使用本地镜像   | 需显式指定。                         | 离线环境或预加载镜像的节点。     |
+
+
+
 ## k8s的负载均衡器
 负载均衡器是暴露服务的最常见和标准方式之一。
 根据工作环境使用两种类型的负载均衡器，即内部负载均衡器或外部负载均衡器。内部负载均衡器自动平衡负载并使用所需配置分配容器，而外部负载均衡器将流量从外部负载引导至后端容器。
