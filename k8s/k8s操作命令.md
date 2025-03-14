@@ -15,6 +15,12 @@ kubectl run nginx --replicas=3 --labels="app-nginx-example" --image=nginx:1.10 -
 ```
 
 - **kubectl create**
+
+**特点：**
+
+- **非幂等性**：重复执行会报错（资源已存在）。
+- **不支持更新**：若需修改资源，需先删除再重新创建
+
 ```bash
 kubectl create deployment nginx --image=nginx
 # 根据yaml配置文件创建资源对象
@@ -26,6 +32,12 @@ kubectl create namespace bigdata
 ```
 
 - **kubectl apply**
+
+**特点：**
+
+- **幂等性**：可重复执行，资源不存在时创建，存在时更新。
+- **支持合并更新**：仅修改文件中定义的字段，不影响其他配置。
+
 ```bash
 kubectl apply deployment nginx --image=nginx
 # 使用yaml文件创建资源
@@ -38,7 +50,7 @@ kubectl apply -f zookeeper.yaml
 kubectl get nodes --show-labels
 ```
 
-- **添加****标签**
+- **添加标签**
 ```bash
 # 为指定节点添加标签
 kubectl label nodes nodeName labelName=value
@@ -46,7 +58,7 @@ kubectl label nodes nodeName labelName=value
 kubectl label pod podName -n nsName labelName=value
 ```
 
-- **修改****标签**
+- **修改标签**
 ```bash
 # 修改节点标签值
 kubectl label nodes nodeName
@@ -172,7 +184,17 @@ kubectl set image deployment/nginx nginx=nginx:1.15
 # 记录更新操作命令以便后续查看变更历史
 kubectl set image deployment/nginx nginx=nginx:1.15 --record
 ```
+**命令分解**：
+
+| 命令部分            | 作用说明                                                     |
+| ------------------- | ------------------------------------------------------------ |
+| `kubectl set image` | 修改 Kubernetes 资源（如 Deployment、StatefulSet）中容器的镜像版本。 |
+| `deployment/nginx`  | 指定要操作的是名为 `nginx` 的 Deployment。                   |
+| `nginx=nginx:1.15`  | 将容器名称 `nginx` 的镜像更新为 `nginx:1.15`。               |
+| `--record`          | 将本次操作记录到 Deployment 的注解中，便于后续查看变更历史。 |
+
 ### 2. 编辑更新
+
 ```bash
 kubectl edit deployment/nginx
 ```
@@ -182,11 +204,33 @@ kubectl rolling-update frontend-v1 frontend-v2 --image=image:v2
 kubectl rolling-update frontend --image=image:v2
 kubectl rolling-update frontend-v1 frontend-v2 --rollback
 ```
+**命令分解**：
+
+| 命令部分                 | 作用说明                                                     |
+| ------------------------ | ------------------------------------------------------------ |
+| `kubectl rolling-update` | 触发滚动更新操作（**仅适用于 ReplicationController，已弃用**）。 |
+| `frontend-v1`            | 旧版本的 ReplicationController 名称。                        |
+| `frontend-v2`            | 新版本的 ReplicationController 名称（由命令自动创建）。      |
+| `--image=image:v2`       | 指定新版本的容器镜像。                                       |
+
 ### 4. 替换更新
+
 ```bash
 kubectl replace -f zookersts.yaml
 ```
+该命令用于 **强制替换 Kubernetes 集群中已存在的资源**，用 `zookersts.yaml` 文件中的新配置完全覆盖旧配置。以下是逐部分解析：
+
+**命令分解**：
+
+| 命令部分            | 作用说明                               |
+| ------------------- | -------------------------------------- |
+| `kubectl replace`   | 替换（覆盖）已存在的资源。             |
+| `-f zookersts.yaml` | 指定包含资源定义的 YAML 配置文件路径。 |
+
+
+
 ### 5. 扩缩容
+
 ```bash
 kubectl scale deployment nginx --replicas=10
 ```
@@ -211,7 +255,19 @@ kubectl rollout resume deployment/review-demo --namespace=nsName
 kubectl rollout undo deployment/nginx --namespace=nsName
 kubectl rollout undo deployment/nginx --to-revision=3  --namespace=nsName
 ```
+**总结**
+
+| **子命令**             | **用途**               | **常用参数**                     |
+| ---------------------- | ---------------------- | -------------------------------- |
+| `rollout status`       | 查看滚动更新的实时状态 | 无                               |
+| `rollout history`      | 显示版本历史记录       | `--revision`（查看指定版本详情） |
+| `rollout undo`         | 回滚到历史版本         | `--to-revision`（指定回滚版本）  |
+| `rollout pause/resume` | 暂停/恢复滚动更新      | 无                               |
+
+
+
 ## 7. 清理
+
 ```bash
 # 删除资源
 kubectl delete deploy/nginx
@@ -238,9 +294,12 @@ time -p kubectl delete pod podName
 
 # 强制删除（默认：30s）
 # 指定删除延迟时间：0s，整体删除时间会明显降低
+# grace-period：设置优雅终止期为 0 秒（跳过等待，立即终止）
+# force：强制删除（绕过 API Server 的正常协调流程）
 kubectl delete pod podName -n nsName --grace-period=0 --force
 # 以下两行命令功能相同（grace-period=1，等价于now，立即执行）
 kubectl delete pod podName -n nsName --grace-period=1
+# now：立即终止 Pod（等同于 --grace-period=1，并强制删除，无需等待确认）。
 kubectl delete pod podName -n nsName --now
 # 删除所有Pods
 kubectl delete pods --all --force --grace-period=0
@@ -434,7 +493,7 @@ kubectl expose deployment.apps nginx-app --type=ClusterIP --target-port=80 --por
 - **expose**：创建service。
 - **deployment.apps**：控制器类型。
 - **nginx-app**：应用名称，也是service名称。
-- **--type=****ClusterIP**：指定service类型。
+- **--type=**ClusterIP：指定service类型。
 - **--target-port=80**：指定Pod中容器端口。
 - **--port=80**：指定service端口。
 
@@ -550,9 +609,9 @@ kubectl run nginx-app --image=nginx:latest --image-pull-policy=IfNotPresent --re
 参数说明：
 
 - **nginx-app**：Deployment控制器类型的应用名称。
-- **--image=nginx****:****latest**：应用运行的Pod中的Container所使用的镜像。
+- **--image=nginx**:**latest**：应用运行的Pod中的Container所使用的镜像。
 - **IfNotPresent**：Container容器镜像下载策略，如果本地有镜像，使用本地，如果本地没有镜像，下载镜像。
-- **--**replicas**=****2**：是指应用运行的Pod共计2个副本，这是用户的期望值，Deployment控制器中的ReplicaSet控制器会一直监控此应用运行的Pod副本状态，如果数量达不到用户期望，就会重新拉起一个新的Pod，会让Pod数量一直维持在用户期望值数量。
+- **--replicas=2**：是指应用运行的Pod共计2个副本，这是用户的期望值，Deployment控制器中的ReplicaSet控制器会一直监控此应用运行的Pod副本状态，如果数量达不到用户期望，就会重新拉起一个新的Pod，会让Pod数量一直维持在用户期望值数量。
 
 验证：
 ```bash
