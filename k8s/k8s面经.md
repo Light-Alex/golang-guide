@@ -480,6 +480,107 @@ k8s API Server作为集群的核心，负责集群各功能模块之间的通信
 如kubelet进程与API Server的交互：每个Node上的kubelet每隔一个时间周期，就会调用一次API Server的REST接口报告自身状态，API Server在接收到这些信息后，会将节点状态信息更新到etcd中。
 如kube-controller-manager进程与API Server的交互：kube-controller-manager中的Node Controller模块通过API Server提供的Watch接口实时监控Node的信息，并做相应处理。
 如kube-scheduler进程与API Server的交互：Scheduler通过API Server的Watch接口监听到新建Pod副本的信息后，会检索所有符合该Pod要求的Node列表，开始执行Pod调度逻辑，在调度成功后将Pod绑定到目标节点上。
+
+---
+
+**DeepSeek版本：**
+
+（1）API Server接口方法：
+
+**1. 标准 HTTP 方法**
+
+| **HTTP 方法** | **用途**                                           | **示例操作**                                                 |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| **GET**       | 获取资源信息（单个资源、列表或特定子资源）。       | `GET /api/v1/namespaces/default/pods/my-pod`                 |
+| **POST**      | 创建新资源或触发特定操作（如执行命令、代理请求）。 | `POST /api/v1/namespaces/default/pods`                       |
+| **PUT**       | **全量替换**现有资源（需提供完整的资源定义）。     | `PUT /apis/apps/v1/namespaces/default/deployments/my-deploy` |
+| **PATCH**     | **部分更新**资源（支持多种补丁格式）。             | `PATCH /api/v1/namespaces/default/services/my-svc`           |
+| **DELETE**    | 删除资源。                                         | `DELETE /api/v1/namespaces/default/pods/my-pod`              |
+
+**2. 特殊操作（Custom Verbs）**
+
+Kubernetes API 还支持通过 **子资源（Subresources）** 或 **操作动词** 实现高级功能：
+
+| **操作类型**     | **用途**                                                     | **HTTP 方法 & 路径示例**                                     |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **Watch**        | 监听资源变更事件（实时推送增删改操作）。                     | `GET /api/v1/pods?watch=true`                                |
+| **Proxy**        | 代理请求到 Pod、Service 或 Node（如访问 Pod 的日志或调试端口）。 | `GET /api/v1/namespaces/{ns}/pods/{name}/proxy/logs`         |
+| **Exec/Attach**  | 在运行的容器中执行命令或附加到容器。                         | `POST /api/v1/namespaces/{ns}/pods/{name}/exec`              |
+| **Port Forward** | 将本地端口转发到 Pod 内部端口（用于调试）。                  | `POST /api/v1/namespaces/{ns}/pods/{name}/portforward`       |
+| **Scale**        | 调整资源副本数（如 Deployment、StatefulSet）。               | `PATCH /apis/apps/v1/namespaces/{ns}/deployments/{name}/scale` |
+| **Logs**         | 获取容器日志（支持流式输出）。                               | `GET /api/v1/namespaces/{ns}/pods/{name}/log`                |
+
+
+
+（2）各模块与 API Server 的通信机制及用途详解：
+
+在 Kubernetes 中，所有核心组件都通过 **API Server** 作为中央枢纽进行通信，API Server 是集群的 **唯一入口**，负责处理 REST 请求、认证授权、数据校验，并持久化状态到 etcd。以下是各模块与 API Server 的通信机制及用途详解：
+
+**1. 控制平面组件**
+
+**(1) Controller Manager（控制器管理器）**
+
+- 通信方式：
+  - **Watch 机制**：通过 List-Watch 监听资源（如 Pod、Deployment、Service）的 **事件**（创建/更新/删除）。
+  - **Informer 模式**：使用 `client-go` 库的 Informer 缓存资源状态，减少 API Server 压力。
+- 用途：
+  - 确保集群状态与期望一致（如确保 Deployment 的副本数正确）。
+  - 触发控制循环逻辑（如创建 ReplicaSet、处理节点故障）。
+
+**(2) Scheduler（调度器）**
+
+- 通信方式：
+  - **List-Watch**：监听未调度的 Pod（`spec.nodeName` 为空）。
+  - **绑定操作**：通过 `POST` 请求将 Pod 绑定到选定节点（更新 Pod 的 `nodeName` 字段）。
+- 用途：
+  - 过滤节点（Predicates）和打分（Priorities），选择最优节点。
+  - 触发绑定操作后，由 Kubelet 接管 Pod 的生命周期管理。
+
+**2. 节点组件**
+
+**(1) Kubelet（节点代理）**
+
+- 通信方式：
+  - **主动上报**：定期向 API Server 发送节点状态（`NodeStatus`）和 Pod 状态（`PodStatus`）。
+  - **Watch 机制**：监听分配给本节点的 Pod 的创建/更新事件。
+  - **Exec/Logs/PortForward**：处理 API Server 下发的容器操作请求（如执行命令、获取日志）。
+- 用途：
+  - 拉取 Pod 清单并启动容器。
+  - 监控容器健康状态，执行存活/就绪探针。
+
+**(2) Kube-proxy（网络代理）**
+
+- 通信方式：
+  - **List-Watch**：监听 Service 和 Endpoint 资源的变化。
+- 用途：
+  - 维护节点上的 iptables/IPVS 规则，确保 Service 流量正确路由到后端 Pod。
+  - 根据 Endpoint 变化动态更新负载均衡规则。
+
+**3. 其他组件**
+
+**(1) etcd（分布式存储）**
+
+- 通信方式：
+  - **仅 API Server 直接访问**：其他组件不直接与 etcd 通信，所有数据操作通过 API Server。
+- 用途：
+  - 存储集群所有资源的状态（如 Pod、Service、ConfigMap）。
+  - 提供 Watch 接口供 API Server 监听数据变更。
+
+**(2) Cloud Controller Manager（云控制器管理器）**
+
+- 通信方式：
+  - **Watch 机制**：监听 Node、Service 等资源，与云厂商 API 交互（如创建负载均衡器）。
+- 用途：
+  - 管理云平台资源（如自动创建云盘、配置外部负载均衡器）。
+
+**(3) 用户客户端（kubectl、自定义 Operator）**
+
+- 通信方式：
+  - **REST API**：直接调用 API Server 的接口管理资源。
+  - **Informer 模式**：使用 `client-go` 监听资源变更，实现自定义控制器。
+
+
+
 ## k8s Scheduler作用及实现原理
 k8s Scheduler是负责Pod调度的重要功能模块，k8s Scheduler在整个系统中承担了“承上启下”的重要功能，“承上”是指它负责接收Controller Manager创建的新Pod，为其调度至目标Node；“启下”是指调度完成后，目标Node上的kubelet服务进程接管后继工作，负责Pod接下来生命周期。
 k8s Scheduler的作用是将待调度的Pod（API新创建的Pod、Controller Manager为补足副本而创建的Pod等）按照特定的调度算法和调度策略绑定（Binding）到集群中某个合适的Node上，并将绑定信息写入etcd中。
@@ -493,7 +594,8 @@ k8s Scheduler根据如下两种调度算法将 Pod 绑定到最合适的工作�
 ## k8s kubelet的作用
 在k8s集群中，在每个Node（又称Worker）上都会启动一个kubelet服务进程。该进程用于处理Master下发到本节点的任务，管理Pod及Pod中的容器。每个kubelet进程都会在API Server上注册节点自身的信息，定期向Master汇报节点资源的使用情况，并通过cAdvisor监控容器和节点资源。
 ## k8s kubelet监控Worker节点资源是使用什么组件来实现的
-kubelet使用cAdvisor对worker节点资源进行监控。在k8s系统中，cAdvisor已被默认集成到kubelet组件内，当kubelet服务启动时，它会自动启动cAdvisor服务，然后cAdvisor会实时采集所在节点的性能指标及在节点上运行的容器的性能指标。
+**kubelet使用cAdvisor对worker节点资源进行监控**。在k8s系统中，cAdvisor已被默认集成到kubelet组件内，当kubelet服务启动时，它会自动启动cAdvisor服务，然后cAdvisor会实时采集所在节点的性能指标及在节点上运行的容器的性能指标。
+
 ## k8s如何保证集群的安全性
 k8s通过一系列机制来实现集群的安全控制，主要有如下不同的维度：
 
@@ -570,7 +672,7 @@ k8s对于有状态的容器应用或者对数据需要持久化的应用，因�
 ## k8s数据持久化的方式有哪些
 k8s通过数据持久化来持久化保存重要数据，常见的方式有：
 
-- EmptyDir（空目录）：没有指定要挂载宿主机上的某个目录，直接由Pod内保部映射到宿主机上。类似于docker中的manager volume。
+- EmptyDir（空目录）：没有指定要挂载宿主机上的某个目录，直接由Pod内部映射到宿主机上。类似于docker中的manager volume。
 - 场景：
    - 只需要临时将数据保存在磁盘上，比如在合并/排序算法中；
    - 作为两个容器的共享存储。
@@ -596,6 +698,132 @@ k8s支持两种资源的存储供应模式：静态模式（Static）和动态�
 
 - 静态模式：集群管理员手工创建许多PV，在定义PV时需要将后端存储的特性进行设置。
 - 动态模式：集群管理员无须手工创建PV，而是通过StorageClass的设置对后端存储进行描述，标记为某种类型。此时要求PVC对存储的类型进行声明，系统将自动完成PV的创建及与PVC的绑定。
+
+---
+
+**DeepSeek版本：**
+
+在Kubernetes中，StorageClass用于定义动态存储供给的配置，允许按需自动创建持久卷（PV）。以下是StorageClass的详细用法及步骤说明：
+
+**1. StorageClass的核心作用**
+
+- **动态供给存储**：根据用户请求（PersistentVolumeClaim, PVC）自动创建PV，无需管理员手动预置。
+- **抽象存储配置**：定义存储后端（如AWS EBS、NFS、Ceph等）的参数，简化用户申请存储的过程。
+
+**2. StorageClass的关键字段**
+
+| 字段                   | 描述                                                         |
+| ---------------------- | ------------------------------------------------------------ |
+| `provisioner`          | 指定存储供给驱动（如`kubernetes.io/aws-ebs`、`nfs-client`等）。 |
+| `parameters`           | 存储后端的配置参数（如磁盘类型、区域、IOPS等）。             |
+| `reclaimPolicy`        | PVC删除后PV的处理策略（`Delete`或`Retain`，默认为`Delete`）。 |
+| `volumeBindingMode`    | 绑定时机（`Immediate`立即绑定或`WaitForFirstConsumer`延迟到Pod调度）。 |
+| `allowVolumeExpansion` | 是否允许PVC扩展存储容量（需存储后端支持）。                  |
+
+**3. 使用步骤**
+
+**(1) 创建StorageClass**
+
+**示例：AWS EBS的StorageClass**
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp2
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2          # 磁盘类型（通用型SSD）
+  fsType: ext4      # 文件系统类型
+  iopsPerGB: "10"   # 仅对io1类型有效
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+```
+
+**参数说明**：
+
+- `provisioner`: 使用AWS EBS驱动。
+- `parameters`: 指定磁盘类型为`gp2`，文件系统为`ext4`。
+- `reclaimPolicy`: PVC删除后保留PV（需手动清理）。
+- `volumeBindingMode`: 延迟绑定到Pod调度，确保存储与Pod在同一可用区。
+
+#### **(2) 用户创建PVC**
+
+**示例：申请30GiB存储**
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-gp2  # 引用StorageClass名称
+  resources:
+    requests:
+      storage: 30Gi
+```
+
+**关键点**：
+
+- `storageClassName`必须匹配已存在的StorageClass名称。
+- 若未指定`storageClassName`，使用默认的StorageClass（需管理员配置）。
+
+**(3) 自动创建PV并绑定**
+
+- Kubernetes操作：
+
+  - PVC提交后，StorageClass的`provisioner`（如AWS EBS驱动）创建实际的存储资源（如EBS卷）。
+
+  - 自动生成PV，并绑定到该PVC。
+
+  - 若`volumeBindingMode`为`WaitForFirstConsumer`，PV的创建延迟到Pod调度完成。
+
+**验证状态**：
+
+```bash
+kubectl get pvc my-pvc
+# 输出示例：
+NAME      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+my-pvc    Bound    pvc-9a8f7d1c-7d4f-4b2d-8f5e-6c3b1f4d5e6a   30Gi       RWO            ebs-gp2        1m
+```
+
+**(4) Pod使用PVC**
+
+**示例：挂载到Pod**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: data
+      mountPath: /var/www/html
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: my-pvc
+```
+
+**效果**：
+
+- Pod启动后，存储卷（如EBS）挂载到容器路径。
+- 若使用`WaitForFirstConsumer`，PV在Pod调度到节点后创建，确保区域一致。
+
+**总结**
+
+- **StorageClass核心流程**：定义存储配置 → 用户申请PVC → 动态创建PV → Pod挂载使用。
+- **关键配置**：选择正确的`provisioner`、合理设置`reclaimPolicy`和`volumeBindingMode`。
+- **最佳实践**：生产环境推荐`WaitForFirstConsumer`避免跨区域问题，设置默认StorageClass简化用户操作。
+
+
+
 ## k8s CSI模型
 k8s CSI是k8s推出与容器对接的存储接口标准，存储提供方只需要基于标准接口进行存储插件的实现，就能使用k8s的原生存储机制为容器提供存储服务。CSI使得存储提供方的代码能和k8s代码彻底解耦，部署也与k8s核心组件分离，显然，存储插件的开发由提供方自行维护，就能为k8s用户提供更多的存储功能，也更加安全可靠。
 CSI包括CSI Controller和CSI Node：
@@ -722,6 +950,7 @@ spec:
 上述配置文件中，探测方式为项容器发送HTTP GET请求，请求的是8080端口下的healthz文件，返回任何大于或等于200且小于400的状态码表示成功。任何其他代码表示异常。
 3）tcpSocket：通过容器的IP和Port执行TCP检查，如果能够建立TCP连接，则表明容器健康，这种方式与HTTPget的探测机制有些类似，tcpsocket健康检查适用于TCP业务。
 tcpSocket探测方式的yaml文件语法如下：
+
 ```yaml
 spec:
   containers:
