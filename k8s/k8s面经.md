@@ -834,7 +834,7 @@ CSI包括CSI Controller和CSI Node：
 通常需要对Worker节点进行扩容，从而将应用系统进行水平扩展。主要过程如下：
 
 - 在该Node上安装Docker、kubelet和kube-proxy服务；
-- 然后配置kubelet和kubeproxy的启动参数，将Master URL指定为当前k8s集群Master的地址，最后启动这些服务；
+- 然后配置kubelet和kube-proxy的启动参数，将Master URL指定为当前k8s集群Master的地址，最后启动这些服务；
 - 通过kubelet默认的自动注册机制，新的Worker将会自动加入现有的k8s集群中；
 - k8s Master在接受了新Worker的注册之后，会自动将其纳入当前集群的调度范围。
 ## k8s Pod如何实现对节点的资源控制
@@ -842,9 +842,88 @@ k8s集群里的节点提供的资源主要是计算资源，计算资源是可�
 通常，一个程序所使用的CPU与Memory是一个动态的量，确切地说，是一个范围，跟它的负载密切相关：负载增加时，CPU和Memory的使用量也会增加。
 ## k8s Requests和Limits如何影响Pod的调度
 当一个Pod创建成功时，k8s调度器（Scheduler）会为该Pod选择一个节点来执行。对于每种计算资源（CPU和Memory）而言，每个节点都有一个能用于运行Pod的最大容量值。调度器在调度时，首先要确保调度后该节点上所有Pod的CPU和内存的Requests总和，不超过该节点能提供给Pod使用的CPU和Memory的最大容量值。
+
+---
+
+**DeepSeek版本：**
+
+在 Kubernetes 中，**Requests（请求）** 和 **Limits（限制）** 是 Pod 资源管理的关键配置，直接影响 Pod 的调度行为和节点资源的分配。以下是它们对调度的影响及实际作用的详细解释：
+
+**1. Requests 的作用**
+
+**定义**
+
+- **Requests**：表示容器启动时所需的最小资源量（如 CPU、内存）。
+- **调度依据**：Kubernetes 调度器（kube-scheduler）根据节点的 **可用资源是否满足 Pod 中所有容器的 Requests 总和** 来决定是否将 Pod 调度到该节点。
+
+**调度流程**
+
+1. **筛选阶段**：调度器筛选出所有满足 Pod Requests 资源需求的节点。
+2. **评分阶段**：根据剩余资源、亲和性等策略对节点打分，选择最优节点。
+
+
+
+**2. Limits 的作用**
+
+**定义**
+
+- **Limits**：限制容器运行时能使用的资源上限（如 CPU 峰值、内存硬限制）。
+- **运行时控制**：由节点上的 **kubelet** 和 **容器运行时（如 Docker）** 强制执行。
+
+**对调度的间接影响**
+
+- **不影响调度决策**：调度器 **不检查 Limits**，仅关注 Requests。
+- **资源竞争风险**：若多个 Pod 的 Limits 总和超过节点实际资源，可能导致资源争抢，触发 OOM Kill 或 CPU 限流。
+
+
+
+**3. QoS 等级的影响**
+
+| **QoS 等级**   | **条件**                         | **调度优先级**     |
+| -------------- | -------------------------------- | ------------------ |
+| **Guaranteed** | 所有容器的 Requests == Limits    | 高（资源保障性强） |
+| **Burstable**  | 至少一个容器的 Requests < Limits | 中（资源可扩展）   |
+| **BestEffort** | 未设置 Requests 和 Limits        | 低（资源无保障）   |
+
+
+
+**4. 常见问题与解决方案**
+
+**问题 1：Pod 处于 Pending 状态**
+
+- **原因**：无节点满足 Requests。
+- 解决：
+  - 检查节点资源：`kubectl describe node <node-name>`。
+  - 扩容集群或调整 Pod 的 Requests。
+
+**问题 2：容器频繁 OOMKilled**
+
+- **原因**：内存 Limits 设置过低。
+- 解决：
+  - 增加内存 Limits 或优化应用内存使用。
+
+**问题 3：CPU 限流导致性能下降**
+
+- **原因**：节点实际 CPU 使用超出 Limits 总和。
+- 解决：
+  - 分散高负载 Pod 到不同节点（通过反亲和性）。
+  - 调整 Limits 或升级节点配置。
+
+
+
+**总结：**
+
+| **配置项**   | **调度影响**                       | **运行时影响**                   | **关键建议**                     |
+| ------------ | ---------------------------------- | -------------------------------- | -------------------------------- |
+| **Requests** | 决定 Pod 能否调度到节点。          | 无直接关系。                     | 按需设置，避免过低或过高。       |
+| **Limits**   | 不影响调度，但影响节点资源稳定性。 | 限制容器资源使用，防止节点过载。 | 根据应用峰值需求设置，监控调整。 |
+
+
+
 ## k8s Metric Service
 在k8s从1.10版本后采用Metrics Server作为默认的性能数据采集和监控，主要用于提供核心指标（Core Metrics），包括Node、Pod的CPU和内存使用指标。
 对其他自定义指标（Custom Metrics）的监控则由Prometheus等组件来完成。
+
 ## k8s中，如何使用EFK实现日志的统一管理
 在k8s集群环境中，通常一个完整的应用或服务涉及组件过多，建议对日志系统进行集中化管理，通常采用EFK实现。
 EFK是 Elasticsearch、Fluentd 和 Kibana 的组合，其各组件功能如下：
@@ -855,7 +934,7 @@ EFK是 Elasticsearch、Fluentd 和 Kibana 的组合，其各组件功能如下�
 
 通过在每台Node上部署一个以DaemonSet方式运行的Fluentd来收集每台Node上的日志。Fluentd将Docker日志目录/var/lib/docker/containers和/var/log目录挂载到Pod中，然后Pod会在Node节点的/var/log/pods目录中创建新的目录，可以区别不同的容器日志输出，该目录下有一个日志文件链接到/var/lib/docker/contianers目录下的容器日志输出。
 ## k8s如何进行优雅的节点关机维护
-由于k8s节点运行大量Pod，因此在进行关机维护之前，建议先使用kubectl drain将该节点的Pod进行驱逐，然后进行关机维护。
+由于k8s节点运行大量Pod，因此在进行关机维护之前，建议先使用`kubectl drain`将该节点的Pod进行驱逐，然后进行关机维护。
 ## k8s集群联邦
 k8s集群联邦可以将多个k8s集群作为一个集群进行管理。因此，可以在一个数据中心/云中创建多个k8s集群，并使用集群联邦在一个地方控制/管理所有集群。
 ## Helm及其优势
@@ -870,9 +949,118 @@ Helm中通常每个包称为一个Chart，一个Chart是一个目录（一般情
 - 对于应用发布者而言，可以通过 Helm 打包应用、管理应用依赖关系、管理应用版本并发布应用到软件仓库。
 
 对于使用者而言，使用Helm后不用需要编写复杂的应用部署文件，可以以简单的方式在k8s上查找、安装、升级、回滚、卸载应用程序。
+
+---
+
+**DeepSeek版本：**
+
+**Helm** 是 Kubernetes 的 **包管理工具**，用于简化应用的打包、部署和管理。它通过 **Chart**（预配置的模板）实现应用的版本控制、依赖管理和一键部署。以下是 Helm 的核心概念、使用场景及操作指南：
+
+**1. Helm 的核心概念**
+
+| **术语**       | **说明**                                                     |
+| -------------- | ------------------------------------------------------------ |
+| **Chart**      | Helm 的应用包，包含 Kubernetes 资源模板（YAML）和配置参数。  |
+| **Repository** | Chart 的存储仓库（类似 Docker Hub），用于共享和分发 Charts。 |
+| **Release**    | 在 Kubernetes 集群中运行的 Chart 实例（每个 Release 有唯一名称和版本）。 |
+| **Values**     | 用于覆盖 Chart 默认配置的参数（通过 `values.yaml` 或命令行参数指定）。 |
+
+
+
+**2. 为什么使用 Helm？**
+
+- 传统部署痛点：
+  - 手动编写大量 YAML 文件，易出错且重复劳动。
+  - 缺乏版本控制和回滚机制。
+  - 多环境（开发、测试、生产）配置管理复杂。
+- Helm 的优势：
+  - **标准化打包**：将应用及其依赖封装为 Chart。
+  - **参数化配置**：通过 Values 动态生成 Kubernetes 资源。
+  - **一键部署**：支持安装、升级、回滚等操作。
+  - **依赖管理**：自动处理子 Charts 或外部依赖（如数据库、中间件）。
+
+
+
+**3. Helm 核心组件**
+
+**(1) Chart 结构**
+
+```bash
+my-chart/
+├── Chart.yaml          # Chart 元数据（名称、版本、依赖）
+├── values.yaml         # 默认配置参数
+├── charts/             # 子 Charts 依赖
+├── templates/          # Kubernetes 资源模板（支持 Go 模板语法）
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── ...
+└── README.md           # 使用说明
+```
+
+**(2) Helm 架构**
+
+- **Helm Client**：用户命令行工具，负责与仓库和集群交互。
+- **Helm Library**：处理 Chart 安装、升级等逻辑。
+- **Helm Release**：存储在集群中的 Chart 实例状态（通过 Secrets 或 ConfigMaps）。
+
+
+
+**4. Helm 安装与常用命令**
+
+**(1) 安装 Helm**
+
+```bash
+# 使用脚本安装（以 Linux 为例）
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+```
+
+**(2) 常用命令**
+
+| **命令**           | **作用**                                                     |
+| ------------------ | ------------------------------------------------------------ |
+| `helm search repo` | 搜索仓库中的 Charts（如 `helm search repo bitnami`）。       |
+| `helm install`     | 安装 Chart（如 `helm install my-release bitnami/nginx`）。   |
+| `helm upgrade`     | 升级 Release（如 `helm upgrade my-release bitnami/nginx --version 1.2.0`）。 |
+| `helm rollback`    | 回滚到历史版本（如 `helm rollback my-release 1`）。          |
+| `helm uninstall`   | 卸载 Release（如 `helm uninstall my-release`）。             |
+| `helm list`        | 查看已安装的 Releases。                                      |
+| `helm show values` | 查看 Chart 的默认配置（如 `helm show values bitnami/redis`）。 |
+
+
+
+**5. 示例：部署 Redis 集群**
+
+**(1) 添加仓库并搜索 Chart**
+
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm search repo bitnami/redis
+```
+
+**(2) 自定义配置（values-redis.yaml）**
+
+```yaml
+# values-redis.yaml
+cluster:
+  enabled: true
+  slaveCount: 3
+password: "my-redis-password"
+```
+
+**(3) 安装 Redis 集群**
+
+```bash
+helm install my-redis bitnami/redis -f values-redis.yaml
+```
+
+
+
 ## k8s是什么？请说出你的了解？
 答：Kubenetes是一个针对容器应用，进行自动部署，弹性伸缩和管理的开源系统。主要功能是生产环境中的容器编排。
 K8S是Google公司推出的，它来源于由Google公司内部使用了15年的Borg系统，集结了Borg的精华。
+
 ## K8s架构的组成是什么？
 答：和大多数分布式系统一样，K8S集群至少需要一个主节点（Master）和多个计算节点（Node）。
 
@@ -882,7 +1070,7 @@ K8S是Google公司推出的，它来源于由Google公司内部使用了15年的
 1、Master节点（默认不参加实际工作）：
 
 - Kubectl：客户端命令行工具，作为整个K8s集群的操作入口；
-- Api Server：在K8s架构中承担的是“桥梁”的角色，作为资源操作的唯一入口，它提供了认证、授权、访问控制、API注册和发现等机制。客户端与k8s群集及K8s内部组件的通信，都要通过Api Server这个组件；
+- Api Server：在K8s架构中承担的是“桥梁”的角色，作为资源操作的唯一入口，它提供了认证、授权、访问控制、API注册和发现等机制。客户端与k8s集群及K8s内部组件的通信，都要通过Api Server这个组件；
 - Controller-manager：负责维护群集的状态，比如故障检测、自动扩展、滚动更新等；
 - Scheduler：负责资源的调度，按照预定的调度策略将pod调度到相应的node节点上；
 - Etcd：担任数据中心的角色，保存了整个群集的状态；
