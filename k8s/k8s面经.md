@@ -1071,9 +1071,9 @@ K8S是Google公司推出的，它来源于由Google公司内部使用了15年的
 
 - Kubectl：客户端命令行工具，作为整个K8s集群的操作入口；
 - Api Server：在K8s架构中承担的是“桥梁”的角色，作为资源操作的唯一入口，它提供了认证、授权、访问控制、API注册和发现等机制。客户端与k8s集群及K8s内部组件的通信，都要通过Api Server这个组件；
-- Controller-manager：负责维护群集的状态，比如故障检测、自动扩展、滚动更新等；
+- Controller-manager：负责维护集群的状态，比如故障检测、自动扩展、滚动更新等；
 - Scheduler：负责资源的调度，按照预定的调度策略将pod调度到相应的node节点上；
-- Etcd：担任数据中心的角色，保存了整个群集的状态；
+- Etcd：担任数据中心的角色，保存了整个集群的状态；
 
 2、Node节点：
 
@@ -1195,20 +1195,24 @@ K8s的镜像下载策略有三种：Always、Never、IFNotPresent；
 
 - Always：但凡pod对象终止就重启，此为默认策略。
 - OnFailure：仅在pod对象出现错误时才重启
+- Never：不论容器运行状态如何，kubelet都不会重启该容器。
 ## Service这种资源对象的作用是什么？
 答：用来给相同的多个pod对象提供一个固定的统一访问接口，常用于服务发现和服务访问。
 ## 版本回滚相关的命令？
 ```bash
+# 运行yaml文件，并记录版本信息；
 [root@master httpd-web]# kubectl apply -f httpd2-deploy1.yaml  --record  
-#运行yaml文件，并记录版本信息；
+
+# 查看该deployment的历史版本
 [root@master httpd-web]# kubectl rollout history deployment httpd-devploy1  
-#查看该deployment的历史版本
+
+# 执行回滚操作，指定回滚到版本1
 [root@master httpd-web]# kubectl rollout undo deployment httpd-devploy1 --to-revision=1    
-#执行回滚操作，指定回滚到版本1
-#在yaml文件的spec字段中，可以写以下选项（用于限制最多记录多少个历史版本）：
+
+# 在yaml文件的spec字段中，可以写以下选项（用于限制最多记录多少个历史版本）：
 spec:
   revisionHistoryLimit: 5            
-#这个字段通过 kubectl explain deploy.spec  命令找到revisionHistoryLimit   <integer>行获得
+# 这个字段通过 kubectl explain deploy.spec  命令找到revisionHistoryLimit   <integer>行获得
 ```
 ## 标签与标签选择器的作用是什么？
 标签：是当相同类型的资源对象越来越多的时候，为了更好的管理，可以按照标签将其分为一个组，为的是提升资源对象的管理效率。
@@ -1234,7 +1238,204 @@ selector:
     - {key: name,operator: In,values: [zhangsan,lisi]}     #key、operator、values这三个字段是固定的
     - {key: age,operator: Exists,values:}   #如果指定为exists，那么values的值一定要为空
 ```
+---
+
+**DeepSeek版本：**
+
+在 Kubernetes 中，**标签选择器（Label Selectors）** 是用于筛选和关联资源的核心机制，支持多种匹配规则。以下是标签选择器的类型、语法及使用场景的详细说明：
+
+**1. 标签选择器的类型**
+
+Kubernetes 支持两种主要的标签选择器：
+
+| **类型**                         | **语法支持**                                                 | **适用场景**                             |
+| -------------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
+| **等式选择器（Equality-based）** | `key=value` 或 `key!=value`                                  | 简单匹配（如 `app=web`）。               |
+| **集合选择器（Set-based）**      | `key in (value1, value2)`、`key notin (...)`, `key`（存在性检查） | 复杂条件匹配（如多值筛选、存在性检查）。 |
+
+
+
+**2. 等式选择器（Equality-based）**
+
+**语法规则**
+
+- **精确匹配**：`key=value` **示例**：`app=nginx` 匹配标签 `app` 值为 `nginx` 的资源。
+- **排除匹配**：`key!=value` **示例**：`env!=prod` 排除标签 `env` 值为 `prod` 的资源。
+
+**使用场景**
+
+- **资源选择**：在 `Service`、`Deployment` 等资源的 `selector` 字段中筛选目标 Pod。
+- **节点调度**：在 `nodeSelector` 中指定 Pod 调度的节点标签。
+
+**示例**
+
+```Yaml
+# Service 选择器（仅支持等式选择器）
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+spec:
+  selector:
+    app: web      # 匹配标签 app=web 的 Pod
+    tier: frontend
+  ports:
+    - protocol: TCP
+      port: 80
+```
+
+
+
+**3. 集合选择器（Set-based）**
+
+**语法规则**
+
+- **多值匹配**：`key in (value1, value2)` **示例**：`env in (dev, test)` 匹配标签 `env` 为 `dev` 或 `test` 的资源。
+- **多值排除**：`key notin (value1, value2)` **示例**：`region notin (us-west, eu-central)` 排除特定区域的资源。
+- **存在性检查**：`key` 或 `!key` **示例**：`disktype` 匹配存在 `disktype` 标签的资源；`!priority` 匹配无 `priority` 标签的资源。
+
+**使用场景**
+
+- **复杂筛选**：在 `Deployment`、`ReplicaSet` 或 `Job` 的 `selector` 中支持集合选择器。
+- **亲和性/反亲和性规则**：在 Pod 亲和性配置中筛选节点或 Pod。
+
+**示例**
+
+```Yaml
+# Deployment 选择器（支持集合选择器）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary-deploy
+spec:
+  selector:
+    matchLabels:
+      app: web    # 必须存在的标签
+    matchExpressions:
+      - key: env
+        operator: In
+        values: [dev, test]  # env=dev 或 env=test
+      - key: version
+        operator: NotIn
+        values: [v1]
+  template:
+    metadata:
+      labels:
+        app: web
+        env: test
+        version: v2
+    # ... Pod 定义
+```
+
+**4. 不同资源对选择器的支持**
+
+| **资源类型**                       | **支持的选择器类型**                             | **说明**                                      |
+| ---------------------------------- | ------------------------------------------------ | --------------------------------------------- |
+| **Service**                        | 仅等式选择器                                     | `spec.selector` 字段只支持 `key=value` 形式。 |
+| **Deployment**                     | 集合选择器（`matchLabels` + `matchExpressions`） | 通过 `spec.selector` 定义复杂匹配规则。       |
+| **Node Affinity**                  | 集合选择器（`matchExpressions`）                 | 在节点亲和性规则中筛选节点标签。              |
+| **HPA（HorizontalPodAutoscaler）** | 集合选择器                                       | 筛选需要扩缩容的目标 Pod。                    |
+
+
+
+在 Kubernetes 中，**`matchLabels`** 和 **`matchExpressions`** 是两种用于定义标签选择器（Label Selectors）的字段，通常用于资源选择（如 Pod 选择、节点亲和性规则等）。以下是它们的核心区别、语法及使用场景的详细说明：
+
+**1. `matchLabels`（精确匹配）**
+
+**定义**
+
+- **作用**：通过 **精确的键值对（Key-Value）** 匹配资源标签。
+- **语法**：键值对的集合（Map），资源必须 **同时满足所有指定键值对**。
+
+**示例：**
+
+```yaml
+selector:
+  matchLabels:
+    app: web       # 必须存在标签 app=web
+    tier: frontend # 必须存在标签 tier=frontend
+```
+
+**使用场景**
+
+- **简单条件匹配**：需要精确匹配标签时（如选择特定应用版本的 Pod）。
+- **性能优先**：直接键值匹配，查询效率高。
+
+
+
+**2. `matchExpressions`（表达式匹配）**
+
+**定义**
+
+- **作用**：通过 **逻辑表达式** 匹配资源标签，支持复杂条件（如多值、存在性检查）。
+- 语法：表达式列表，每个表达式包含：
+  - `key`：标签键。
+  - `operator`：操作符（`In`、`NotIn`、`Exists`、`DoesNotExist`）。
+  - `values`：操作符对应的值列表（部分操作符需要）。
+
+**操作符说明**
+
+| **操作符**     | **含义**                     | **示例**                                       |
+| -------------- | ---------------------------- | ---------------------------------------------- |
+| `In`           | 标签值在指定列表中。         | `values: [dev, test]` → 值需为 `dev` 或 `test` |
+| `NotIn`        | 标签值不在指定列表中。       | `values: [prod]` → 值不能是 `prod`             |
+| `Exists`       | 标签键必须存在（不检查值）。 | 无需 `values` 字段。                           |
+| `DoesNotExist` | 标签键必须不存在。           | 无需 `values` 字段。                           |
+
+**示例**
+
+```yaml
+selector:
+  matchExpressions:
+    - key: env
+      operator: In
+      values: [dev, test]      # 标签 env=dev 或 env=test
+    - key: cluster
+      operator: Exists         # 必须存在 cluster 标签（值任意）
+    - key: deprecated
+      operator: DoesNotExist   # 必须不存在 deprecated 标签
+```
+
+**使用场景**
+
+- **复杂条件匹配**：需要组合多个条件（如环境为 `dev` 或 `test`，且必须启用监控）。
+- **动态筛选**：根据标签的存在性或值范围过滤资源。
+
+
+
+**3. 组合使用：`matchLabels` + `matchExpressions`**
+
+- **逻辑关系**：`matchLabels` 和 `matchExpressions` 的条件会被 **逻辑 AND 连接**，即资源必须满足所有条件。
+
+- 示例：
+
+  ```yaml
+  selector:
+    matchLabels:
+      app: web              # 必须存在 app=web
+    matchExpressions:
+      - key: env
+        operator: In
+        values: [dev, test] # 必须 env=dev 或 env=test
+  ```
+
+  等效条件：app=web AND env in (dev, test)。
+
+
+
+**4. 核心区别总结**
+
+| **特性**     | **`matchLabels`**        | **`matchExpressions`**                  |
+| ------------ | ------------------------ | --------------------------------------- |
+| **匹配方式** | 精确键值对匹配。         | 支持逻辑操作符（如 `In`、`Exists`）。   |
+| **灵活性**   | 低（仅支持等值匹配）。   | 高（支持多值、存在性检查等复杂条件）。  |
+| **性能**     | 高（直接哈希查询）。     | 较低（需解析表达式）。                  |
+| **适用资源** | 所有支持标签选择的资源。 | Deployment、StatefulSet、亲和性规则等。 |
+
+
+
 ## 常用的标签分类有哪些？
+
 标签分类是可以自定义的，但是为了能使他人可以达到一目了然的效果，一般会使用以下一些分类：
 
 - 版本类标签（release）：stable（稳定版）、canary（金丝雀版本，可以将其称之为测试版中的测试版）、beta（测试版）；
@@ -1270,12 +1471,12 @@ DaemonSet这种资源对象会在每个k8s集群中的节点上运行，并且�
 - 在去做每个节点的日志收集工作；
 - 监控每个节点的的运行状态；
 ## 说说你对Job这种资源对象的了解？
-答：Job与其他服务类容器不同，Job是一种工作类容器（一般用于做一次性任务）。使用常见不多，可以忽略这个问题。
+答：Job与其他服务类容器不同，Job是一种**工作类容器**（一般用于做一次性任务）。使用常见不多，可以忽略这个问题。
 ```yaml
-#提高Job执行效率的方法：
+# 提高Job执行效率的方法：
 spec:
-  parallelism: 2           #一次运行2个
-  completions: 8           #最多运行8个
+  parallelism: 2           # 一次运行2个
+  completions: 8           # 最多运行8个
   template:
 metadata:
 ```
@@ -1306,12 +1507,30 @@ metadata:
 Service的Endpoint列表通常绑定了一组相同配置的pod，通过负载均衡的方式把外界请求分配到多个pod上
 ## k8s是怎么进行服务注册的？
 答：Pod启动后会加载当前环境所有Service信息，以便不同Pod根据Service名进行通信。
+
+---
+
+**DeepSeek版本：**
+
+在 Kubernetes 中，**服务注册（Service Registration）** 是一个自动化的过程，通过 **标签选择器（Label Selectors）** 和 **控制器（Controllers）** 实现。
+
+| **组件**                | **作用**                                          |
+| ----------------------- | ------------------------------------------------- |
+| **Endpoint Controller** | 监控 Pod 标签变化，更新 Endpoints 对象。          |
+| **kubelet**             | 上报 Pod 的 IP 和端口信息到 API Server。          |
+| **kube-proxy**          | 根据 Endpoints 更新节点的网络规则，实现流量转发。 |
+| **CoreDNS**             | 提供 DNS 解析，将 Service 名称映射到 IP。         |
+
+Kubernetes 的服务注册通过 **Service + Endpoints + 控制器** 实现动态绑定，结合 **kube-proxy** 和 **CoreDNS** 完成流量路由与发现。这种机制简化了微服务架构中的服务管理，是 Kubernetes 实现弹性伸缩和自愈能力的基础。
+
+
+
 ## k8s集群外流量怎么访问Pod？
 答：可以通过Service的NodePort方式访问，会在所有节点监听同一个端口，比如：30000，访问节点的流量会被重定向到对应的Service上面。
 ## k8s数据持久化的方式有哪些？
 答：
 #### 1）EmptyDir（空目录）：
-没有指定要挂载宿主机上的某个目录，直接由Pod内保部映射到宿主机上。类似于docker中的manager volume。
+没有指定要挂载宿主机上的某个目录，直接由Pod内映射到宿主机上。类似于docker中的manager volume。
 主要使用场景：
 
 - 只需要临时将数据保存在磁盘上，比如在合并/排序算法中；
@@ -1320,20 +1539,80 @@ Service的Endpoint列表通常绑定了一组相同配置的pod，通过负载�
 emptyDir的特性：
 同个pod里面的不同容器，共享同一个持久化目录，当pod节点删除时，volume的数据也会被删除。如果仅仅是容器被销毁，pod还在，则不会影响volume中的数据。
 总结来说：emptyDir的数据持久化的生命周期和使用的pod一致。一般是作为临时存储使用。
+
+**配置参数：**
+
+| **参数**    | **说明**                                                     |
+| ----------- | ------------------------------------------------------------ |
+| `medium`    | 存储介质类型： - 默认 `""`（节点磁盘） - `Memory`（内存，即 `tmpfs`） |
+| `sizeLimit` | 卷容量限制（如 `1Gi`）。若超出限制，Pod 可能被驱逐（Evicted）。 OOM Kill |
+
+
+
+**存放路径：**
+
+Kubernetes 会在节点上为每个 Pod 的 `emptyDir` 卷分配一个临时目录，路径格式为：
+
+```
+ /var/lib/kubelet/pods/<Pod_UID>/volumes/kubernetes.io~empty-dir/<volume_name>
+```
+
+- **`Pod_UID`**：Pod 的唯一标识符（如 `f1a2b3c4-d5e6-4f7g-8h9i-j0k1l2m3n4o5`）。
+- **`volume_name`**：Pod 中定义的 `emptyDir` 卷名称。
+
+
+
 #### 2）Hostpath：
 将宿主机上已存在的目录或文件挂载到容器内部。类似于docker中的bind mount挂载方式。
 这种数据持久化方式，运用场景不多，因为它增加了pod与节点之间的耦合。
 一般对于k8s集群本身的数据持久化和docker本身的数据持久化会使用这种方式，可以自行参考apiService的yaml文件，位于：/etc/k8s/main…目录下。
-#### 3）PersistentVolume（简称PV）：
+
+
+
+#### 3) 网络存储：
+
+- **NFS** **用途**：共享文件存储，支持多节点读写。 
+- **场景**：多 Pod 共享数据（如静态资源、配置文件）。 
+- **示例**：
+
+```yaml
+volumes:
+  - name: nfs-volume
+    nfs:
+      server: nfs-server-ip
+      path: /exported/path
+```
+
+- **iSCSI/FC** **用途**：块存储，高性能低延迟。 **场景**：数据库（MySQL、PostgreSQL）等需要块设备的场景。
+
+
+
+#### 4）PersistentVolume（简称PV）：
 基于NFS服务的PV，也可以基于GFS的PV。它的作用是统一数据持久化目录，方便管理。
 在一个PV的yaml文件中，可以对其配置PV的大小，指定PV的访问模式：
 
 - `ReadWriteOnce`：只能以读写的方式挂载到单个节点；
 - `ReadOnlyMany`：能以只读的方式挂载到多个节点；
-- `ReadWriteMany`：能以读写的方式挂载到多个节点。以及指定pv的回收策略：
+- `ReadWriteMany`：能以读写的方式挂载到多个节点。
+
+
+
+以及指定pv的回收策略：
+
 - `recycle`：清除PV的数据，然后自动回收；
 - `Retain`：需要手动回收；
 - `delete`：删除云存储资源，云存储专用；
 
 PS：这里的回收策略指的是在PV被删除后，在这个PV下所存储的源文件是否删除）。
 若需使用PV，那么还有一个重要的概念：PVC，PVC是向PV申请应用所需的容量大小，K8s集群中可能会有多个PV，PVC和PV若要关联，其定义的访问模式必须一致。定义的storageClassName也必须一致，若群集中存在相同的（名字、访问模式都一致）两个PV，那么PVC会选择向它所需容量接近的PV去申请，或者随机申请。
+
+---
+
+在 Kubernetes 中，**PersistentVolume（PV）的回收策略（Reclaim Policy）** 决定了当关联的 **PersistentVolumeClaim（PVC）被删除后，PV 及其底层存储资源的处理方式**。以下是所有支持的回收策略及其详细说明：
+
+| **策略**    | **行为**                                                    | **适用场景**                     | **存储后端支持示例**                  |
+| ----------- | ----------------------------------------------------------- | -------------------------------- | ------------------------------------- |
+| **Retain**  | 保留 PV 和底层存储数据，需手动清理。                        | 生产环境（需保留关键数据）       | 几乎所有类型（NFS、云存储、本地磁盘） |
+| **Delete**  | 自动删除 PV 并清理底层存储资源（如云磁盘、文件系统）。      | 临时数据或测试环境               | AWS EBS、GCE PD、Azure Disk           |
+| **Recycle** | （**已废弃**）删除 PV 数据并标记为可用，供新 PVC 重复使用。 | 旧版本临时测试（**不推荐使用**） | 仅部分本地存储（如 HostPath）         |
+
